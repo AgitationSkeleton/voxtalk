@@ -38,3 +38,5 @@ std::wstring suggestFileName(const std::wstring &text, size_t maxLen = 80);
 // Bundled Half-Life VOX sound effects, usable by name in the text.
 const std::vector<std::wstring> &soundEffectNames();
 void setSoundDirectory(const std::wstring &dir);
+// The effect's samples at 11025 Hz (false if unknown or not yet available).
+bool soundEffect(const std::wstring &name, std::vector<float> &out);

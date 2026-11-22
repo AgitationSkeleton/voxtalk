@@ -27,7 +27,7 @@ Windows 8 or later (32- or 64-bit). On first start the engine is unpacked to
 
 Type text, press **Speak**. **Save as...** writes a single file (named after the
 text), **Save words...** writes one file per word into a folder. **Sound** +
-**Insert** adds a sound effect at the cursor. Every slider starts at the VOX
+**Insert** adds a sound effect at the cursor; picking a sound in the list plays it. Every slider starts at the VOX
 calibration; **Reset to VOX defaults** puts them back.
 
 | Control | What it does |

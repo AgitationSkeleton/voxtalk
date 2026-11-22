@@ -14,7 +14,7 @@
 #include "pack.h"
 #include "resource.h"
 
-#define VOXTALK_VERSION L"1.1.0"
+#define VOXTALK_VERSION L"1.1.1"
 
 // ===========================================================================
 // Shared helpers
@@ -478,6 +478,12 @@ static LRESULT CALLBACK wndProc(HWND h, UINT m, WPARAM wp, LPARAM lp) {
     case WM_COMMAND: {
         int id = LOWORD(wp);
         if (id == IDC_RESET) loadDefaults();
+        else if (id == IDC_SOUND && HIWORD(wp) == CBN_SELCHANGE) {
+            // Preview the chosen sound effect.
+            int i = (int)SendMessageW(g_sound, CB_GETCURSEL, 0, 0);
+            std::vector<float> b;
+            if (i >= 0 && i < (int)soundEffectNames().size() && soundEffect(soundEffectNames()[i], b)) playAudio(b, 11025);
+        }
         else if (id == IDC_INSERT) {
             int i = (int)SendMessageW(g_sound, CB_GETCURSEL, 0, 0);
             if (i >= 0 && i < (int)soundEffectNames().size()) {

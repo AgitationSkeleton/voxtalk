@@ -39,7 +39,6 @@ const std::vector<std::wstring> &soundEffectNames() {
     return n;
 }
 
-void setSoundDirectory(const std::wstring &dir) { g_soundDir = dir; }
 
 static bool isSoundEffect(const std::wstring &w) {
     for (auto &n : soundEffectNames())
@@ -82,17 +81,28 @@ static bool loadWav(const std::wstring &path, dsp::Buf &out) {
     return false;
 }
 
-static bool soundEffect(const std::wstring &name, dsp::Buf &out) {
+static SRWLOCK g_soundLock = SRWLOCK_INIT;  // used from the UI and render threads
+
+void setSoundDirectory(const std::wstring &dir) {
+    AcquireSRWLockExclusive(&g_soundLock);
+    g_soundDir = dir;
+    ReleaseSRWLockExclusive(&g_soundLock);
+}
+
+bool soundEffect(const std::wstring &name, std::vector<float> &out) {
     std::wstring key = name;
     for (auto &c : key) c = (wchar_t)towlower(c);
+    AcquireSRWLockExclusive(&g_soundLock);
     auto it = g_soundCache.find(key);
+    bool ok = true;
     if (it == g_soundCache.end()) {
         dsp::Buf b;
-        if (g_soundDir.empty() || !loadWav(g_soundDir + L"\\" + key + L".wav", b)) return false;
-        it = g_soundCache.emplace(key, std::move(b)).first;
+        if (g_soundDir.empty() || !loadWav(g_soundDir + L"\\" + key + L".wav", b)) ok = false;
+        else it = g_soundCache.emplace(key, std::move(b)).first;
     }
-    out = it->second;
-    return true;
+    if (ok) out = it->second;
+    ReleaseSRWLockExclusive(&g_soundLock);
+    return ok;
 }
 
 // ---------------------------------------------------------------------------
