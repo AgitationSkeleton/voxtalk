@@ -276,6 +276,21 @@ static void applyGamePitch(dsp::Buf &x, const std::wstring &word, const SpeakerP
     if (!e) return;
     const int HOP = 64;
     std::vector<float> tr = dsp::pitchTrack(x, HOP, SR, 35, 250);
+    // Replace tracker outliers (octave slips at transitions) with the local median,
+    // so a glitch is never "corrected" by an octave.
+    {
+        std::vector<float> c = tr;
+        for (long k = 0; k < (long)tr.size(); k++) {
+            if (tr[k] <= 0) continue;
+            std::vector<float> nb;
+            for (long j = k - 4; j <= k + 4; j++)
+                if (j >= 0 && j < (long)tr.size() && tr[j] > 0) nb.push_back(tr[j]);
+            std::nth_element(nb.begin(), nb.begin() + nb.size() / 2, nb.end());
+            float med = nb[nb.size() / 2];
+            if (std::fabs(12 * std::log2(tr[k] / med)) > 4) c[k] = med;
+        }
+        tr.swap(c);
+    }
     long v0 = -1, v1 = -1;
     for (long k = 0; k < (long)tr.size(); k++) if (tr[k] > 0) { if (v0 < 0) v0 = k; v1 = k; }
     if (v0 < 0 || v1 - v0 < 6) return;
@@ -308,10 +323,20 @@ static void applyGamePitch(dsp::Buf &x, const std::wstring &word, const SpeakerP
         double f = pos - i;
         return v[i] + (v[i + 1] - v[i]) * f;
     };
+    // Correction in semitones. The last quarter of the measured contour is not
+    // trusted, so the correction reached at 75 % is held to the end of the word;
+    // it is limited to +-4 semitones and smoothed over ~50 ms to avoid warble.
+    std::vector<double> d(tr.size(), 0.0);
+    for (long k = 0; k < (long)tr.size(); k++) {
+        double u = std::max(0.0, std::min(0.75, (double)(k - v0) / (v1 - v0)));
+        d[k] = std::max(-4.0, std::min(4.0, interp(tgt, u) - interp(src, u)));
+    }
     std::vector<float> ratio(tr.size(), 1.0f);
     for (long k = 0; k < (long)tr.size(); k++) {
-        double u = std::max(0.0, std::min(1.0, (double)(k - v0) / (v1 - v0)));
-        ratio[k] = (float)std::pow(2.0, (interp(tgt, u) - interp(src, u)) / 12.0);
+        double acc = 0; int n = 0;
+        for (long j = k - 4; j <= k + 4; j++)
+            if (j >= 0 && j < (long)d.size()) { acc += d[j]; n++; }
+        ratio[k] = (float)std::pow(2.0, acc / n / 12.0);
     }
     x = dsp::psola(x, tr, HOP, SR, ratio);
 }

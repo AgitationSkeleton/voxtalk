@@ -73,6 +73,21 @@ def contour(path):
     # voice: limit the second half to 3 semitones above the first half's peak.
     h = NSEG // 2
     v[h:] = np.minimum(v[h:], max(v[:h]) + 3)
+    # Smooth: robust quadratic through the segment medians of the first three
+    # quarters (the last quarter is unreliable: echo residue and weak endings),
+    # evaluated at every segment centre. Avoids turning measurement noise into warble.
+    c = (np.arange(NSEG) + 0.5) / NSEG
+    use = c < 0.75
+    keep = use.copy()
+    for _ in range(3):
+        k = np.polyfit(c[keep], v[keep], 2)
+        res = np.abs(v - np.polyval(k, c))
+        keep = use & (res < max(1.0, 2.0 * np.median(res[use])))
+        if keep.sum() < 3:
+            keep = use.copy()
+            k = np.polyfit(c[keep], v[keep], 1)
+            break
+    v = np.polyval(k, c)
     return np.clip(v, -16, 9)
 
 if __name__ == '__main__':

@@ -288,9 +288,13 @@ Buf psola(const Buf &x, const std::vector<float> &track, int hop, double sr, con
                 while (k < e && std::fabs(marks[k + 1] - ts) < std::fabs(marks[k] - ts)) k++;
                 long mk = marks[k];
                 double Tn = k < e ? marks[k + 1] - mk : 1e9, Tp = k > m ? mk - marks[k - 1] : 1e9;
-                double Ta = std::min(Tn, Tp);  // shorter neighbour period: no oversized grains
+                double Tm = std::min(Tn, Tp);  // grain half-length: shorter neighbour period
+                // Advance by the distance to the next analysis mark (divided by the
+                // ratio): at ratio 1 every grain lands back on its own mark, so the
+                // signal is reproduced exactly and no period jitter is added.
+                double Ta = k < e ? Tn : Tp;
                 double rr = std::max(0.5, std::min(2.0, ratioAt((long)ts)));
-                long L = (long)Ta;
+                long L = (long)Tm;
                 float gain = (float)(1.0 / rr);
                 for (long i = -L; i <= L; i++) {
                     long src = mk + i, dst = (long)std::lround(ts) + i;

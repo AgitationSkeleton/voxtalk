@@ -14,7 +14,7 @@
 #include "pack.h"
 #include "resource.h"
 
-#define VOXTALK_VERSION L"1.2.0"
+#define VOXTALK_VERSION L"1.2.1"
 
 // ===========================================================================
 // Shared helpers
