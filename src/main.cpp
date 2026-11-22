@@ -14,7 +14,7 @@
 #include "pack.h"
 #include "resource.h"
 
-#define VOXTALK_VERSION L"1.1.1"
+#define VOXTALK_VERSION L"1.2.0"
 
 // ===========================================================================
 // Shared helpers
@@ -78,6 +78,7 @@ static const wchar_t *USAGE =
     L"\n"
     L"voice (defaults match Half-Life's VOX):\n"
     L"  --no-game-timing      don't give known words the length they have in the game\n"
+    L"  --no-game-pitch       don't give known words the pitch contour they have in the game\n"
     L"  --style STYLE       words (each word spoken separately, as in-game) or sentence\n"
     L"  --pitch N             FlexTalk pitch 0-100        --expression N   intonation 0-100\n"
     L"  --speaking-rate N     FlexTalk rate 0-100         --head-size N    vocal tract size 0-100\n"
@@ -124,6 +125,7 @@ static int runCli(int argc, wchar_t **argv) {
         else if (a == L"--8bit") oo.eightBit = true;
         else if (a == L"--16bit") oo.eightBit = false;
         else if (a == L"--no-game-timing") vs.gameTiming = false;
+        else if (a == L"--no-game-pitch") vs.gamePitch = false;
         else if (a == L"--style") {
             if (!next(v)) return 2;
             if (v == L"words") vs.style = Style::Words;
@@ -317,7 +319,7 @@ static VoiceSettings currentSettings() {
     if (d != (int)(s.echoDelayMs + 0.5)) s.echoDelayMs = d;
     s.lowCutHz = pos(S_LOWCUT);
     s.style = SendMessageW(g_style, CB_GETCURSEL, 0, 0) == 1 ? Style::Words : Style::Sentence;
-    s.gameTiming = SendMessageW(g_timing, BM_GETCHECK, 0, 0) == BST_CHECKED;
+    s.gameTiming = s.gamePitch = SendMessageW(g_timing, BM_GETCHECK, 0, 0) == BST_CHECKED;
     return s;
 }
 
@@ -441,7 +443,7 @@ static void buildUi() {
     }
     y += 282;
     g_reset = mk(L"BUTTON", L"Reset to VOX defaults", WS_TABSTOP, 12, y, 180, 26, IDC_RESET);
-    g_timing = mk(L"BUTTON", L"Use the game's word lengths (word by word)", BS_AUTOCHECKBOX | WS_TABSTOP, 210, y + 3,
+    g_timing = mk(L"BUTTON", L"Match known words to the game (length and pitch)", BS_AUTOCHECKBOX | WS_TABSTOP, 210, y + 3,
                   370, 22, IDC_TIMING);
 
     y += 36;

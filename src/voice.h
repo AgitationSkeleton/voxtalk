@@ -15,6 +15,7 @@ struct VoiceSettings {
     double lowCutHz = 0;
     Style style = Style::Sentence;
     bool gameTiming = true;  // give known words their length from the game files
+    bool gamePitch = true;   // give known words the pitch contour of the game files
 };
 
 // Settings measured from Half-Life's sound/vox files.

@@ -38,7 +38,7 @@ calibration; **Reset to VOX defaults** puts them back.
 | Echo amount / delay | The feedback echo heard in VOX (100 % = as measured) |
 | Low cut | High-pass filter |
 | 8-bit | Quantises to 8 bits like the game files; at 11025 Hz WAV the file is written as 8-bit PCM |
-| Use the game's word lengths | Words that exist in the game get exactly the length of the game's recording, so sentences keep the game's timing |
+| Match known words to the game | Words that exist in the game get the length and pitch contour of the game's recording, so sentences keep the game's timing and intonation |
 
 Punctuation adds pauses in word-by-word mode: commas 0.25 s, full stops 0.43 s,
 matching the game's `_comma` and `_period` sounds.
@@ -83,6 +83,7 @@ voxtalk --play "hello"
 | `-f wav\|mp3` | format for `--split` |
 | `--8bit` / `--16bit` | 8-bit quantisation on (default) or off |
 | `--no-game-timing` | don't give known words the game's word length |
+| `--no-game-pitch` | don't give known words the game's pitch contour |
 | `--style words\|sentence` | default `words` |
 | `--pitch --expression --speaking-rate --head-size --prominences --lowering N` | FlexTalk parameters, 0-100 |
 | `--speed PCT --echo PCT --echo-delay MS --low-cut HZ` | effects |
@@ -98,7 +99,7 @@ folder, not tuned by ear:
 |---|---|---|
 | Voice | FlexTalk male speaker | same |
 | Speed | Playback slowed to 11025/12000 = 91.875 %; tempo and formant positions both point to this ratio | 91.875 % |
-| Pitch | ~60-81 Hz, rising then falling within each word | Pitch 20, Expression 55, Lowering 0, L*+H accent per word |
+| Pitch | ~60-81 Hz overall, but every word has its own contour ("your" rises and falls, "stolen" stays high, "flag" falls) | Pitch 20, Expression 55, Lowering 0, L*+H accent per word; for the game's ~600 words the pitch is steered (TD-PSOLA) to that word's measured contour |
 | Echo | One feedback delay of 1510 samples (137 ms) with a gentle low-pass in the loop, loop gain about 0.43 | same |
 | Filtering | Little energy below ~120 Hz | 4th-order high-pass at 160 Hz |
 | Format | 11025 Hz, 8-bit mono | same |
@@ -106,7 +107,7 @@ folder, not tuned by ear:
 
 Compared with the originals over 150 words, voxtalk's output matches tempo
 (ratio 1.00), formant positions (1.00), pitch percentiles 25/50/75/90
-(61/69/84/106 Hz vs 60/72/81/105 Hz), echo loop gain (0.45 vs 0.43) and median
+(63/72/81/104 Hz vs 60/72/81/105 Hz), echo loop gain (0.45 vs 0.43) and median
 word length (0.63 s vs 0.63 s). Team Fortress Classic's announcer lines
 (`your team has the(s15 e80) enemy flag`, ...) come out the same length as the
 game's own assembly of them.
@@ -115,8 +116,9 @@ The scripts in `tools/calibration` reproduce these measurements (Python with
 numpy and scipy): `echo.py` finds the echo delay, `loopfilt.py` estimates the
 echo's loop filter, `deecho.py` removes it, `assemble.py` builds a sentence
 from the game's word files the way the game does, `make_timing_table.py`
-generates `src/vox_timing.h`, and `analyze.py` holds the pitch and spectrum
-helpers.
+generates `src/vox_timing.h`, `make_pitch_table.py` generates `src/vox_pitch.h`
+(each word's pitch in eight segments, measurements only), and `analyze.py`
+holds the pitch and spectrum helpers.
 
 ## Building
 

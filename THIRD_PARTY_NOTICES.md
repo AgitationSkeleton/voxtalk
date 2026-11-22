@@ -10,8 +10,9 @@ voice inventory as distributed with AT&T's Watson 2.1 redistribution
 
 `payload/Sounds` contains the VOX sound effects `bizwarn`, `bloop`, `buzwarn`,
 `dadeda`, `deeoo`, `doop`, `woop` and `endgame` from Half-Life and Team Fortress
-Classic, by Valve Corporation, included unmodified. `src/vox_timing.h` lists the
-lengths of Half-Life's VOX word files (measurements only, no audio).
+Classic, by Valve Corporation, included unmodified. `src/vox_timing.h` and
+`src/vox_pitch.h` list the lengths and pitch contours of Half-Life's VOX word
+files (measurements only, no audio).
 
 ## LAME 3.100
 

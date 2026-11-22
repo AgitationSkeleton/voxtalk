@@ -1,5 +1,6 @@
 #include "voice.h"
 #include "vox_timing.h"
+#include "vox_pitch.h"
 #include <windows.h>
 #include <cmath>
 #include <cwctype>
@@ -254,6 +255,67 @@ static size_t gameWordLength(const std::wstring &word) {
     return 0;
 }
 
+// Steer a rendered word's pitch to the contour Half-Life's own recording of that
+// word has (quarter-by-quarter medians from vox_pitch.h), keeping FlexTalk's fine
+// detail. Pitch/Expression settings still offset and scale the target.
+static void applyGamePitch(dsp::Buf &x, const std::wstring &word, const SpeakerParams &sp) {
+    std::string key;
+    for (wchar_t c : word) {
+        if (c == L' ') key += '_';
+        else if (c < 128) key += (char)towlower(c);
+        else return;
+    }
+    const VoxPitch *e = nullptr;
+    size_t lo = 0, hi = sizeof(VOX_PITCH) / sizeof(VOX_PITCH[0]);
+    while (lo < hi) {
+        size_t mid = (lo + hi) / 2;
+        int c = strcmp(VOX_PITCH[mid].word, key.c_str());
+        if (c == 0) { e = &VOX_PITCH[mid]; break; }
+        if (c < 0) lo = mid + 1; else hi = mid;
+    }
+    if (!e) return;
+    const int HOP = 64;
+    std::vector<float> tr = dsp::pitchTrack(x, HOP, SR, 35, 250);
+    long v0 = -1, v1 = -1;
+    for (long k = 0; k < (long)tr.size(); k++) if (tr[k] > 0) { if (v0 < 0) v0 = k; v1 = k; }
+    if (v0 < 0 || v1 - v0 < 6) return;
+    // source medians per segment (semitones re 100 Hz)
+    const int NS = (int)(sizeof(e->st) / sizeof(e->st[0]));
+    double src[16], tgt[16];
+    for (int q = 0; q < NS; q++) {
+        std::vector<double> v;
+        for (long k = v0; k <= v1; k++) {
+            double u = (double)(k - v0) / (v1 - v0);
+            if (tr[k] > 0 && u >= (double)q / NS && u <= (double)(q + 1) / NS) v.push_back(12 * std::log2(tr[k] / 100.0));
+        }
+        if (v.empty()) {  // segment too short to measure: borrow the previous one
+            if (q == 0) return;
+            src[q] = src[q - 1];
+            continue;
+        }
+        std::nth_element(v.begin(), v.begin() + v.size() / 2, v.end());
+        src[q] = v[v.size() / 2];
+    }
+    double mean = 0;
+    for (int q = 0; q < NS; q++) { tgt[q] = e->st[q] / 5.0; mean += tgt[q] / NS; }
+    double scale = std::max(0.0, sp.expression / 55.0), offset = (sp.pitch - 20) * 0.37;
+    for (int q = 0; q < NS; q++) tgt[q] = mean + (tgt[q] - mean) * scale + offset;
+    auto interp = [NS](const double *v, double u) {
+        double pos = u * NS - 0.5;  // segment centres at (q + 0.5) / NS
+        if (pos <= 0) return v[0];
+        if (pos >= NS - 1) return v[NS - 1];
+        int i = (int)pos;
+        double f = pos - i;
+        return v[i] + (v[i + 1] - v[i]) * f;
+    };
+    std::vector<float> ratio(tr.size(), 1.0f);
+    for (long k = 0; k < (long)tr.size(); k++) {
+        double u = std::max(0.0, std::min(1.0, (double)(k - v0) / (v1 - v0)));
+        ratio[k] = (float)std::pow(2.0, (interp(tgt, u) - interp(src, u)) / 12.0);
+    }
+    x = dsp::psola(x, tr, HOP, SR, ratio);
+}
+
 static bool renderChunk(FlexEngine &eng, const VoiceSettings &vs, const std::wstring &text, bool wordMode,
                         dsp::Buf &out, std::wstring &err) {
     std::vector<short> pcm;
@@ -267,6 +329,7 @@ static bool renderChunk(FlexEngine &eng, const VoiceSettings &vs, const std::wst
     if (x.empty()) { out.clear(); return true; }
     if (std::fabs(vs.speed - 11025.0 / 12000.0) < 1e-6) x = dsp::resample(x, 160, 147);
     else if (vs.speed > 0.05) x = dsp::stretch(x, 1.0 / vs.speed);
+    if (wordMode && vs.gamePitch) applyGamePitch(x, text, vs.engine);
     dsp::highpass(x, vs.lowCutHz, SR, 4);
     int delay = (int)std::lround(vs.echoDelayMs * SR / 1000.0);
     dsp::feedbackEcho(x, delay, VOX_ECHO_TAPS, vs.echoAmount);

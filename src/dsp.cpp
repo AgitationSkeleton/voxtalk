@@ -154,4 +154,167 @@ void quantize8(Buf &x, unsigned seed) {
         v = q / 127.0f;
     }
 }
+
+std::vector<float> pitchTrack(const Buf &x, int hop, double sr, double fmin, double fmax) {
+    const int minLag = (int)(sr / fmax), maxLag = (int)(sr / fmin) + 1;
+    const int W = maxLag * 2;
+    size_t frames = x.size() / hop + 1;
+    std::vector<float> f0(frames, 0.0f);
+    // energy gate relative to the loudest frame
+    std::vector<double> en(frames, 0.0);
+    double emax = 0;
+    for (size_t k = 0; k < frames; k++) {
+        long c = (long)(k * hop);
+        double e = 0;
+        for (long n = c - W / 2; n < c + W / 2; n++)
+            if (n >= 0 && n < (long)x.size()) e += (double)x[n] * x[n];
+        en[k] = e;
+        emax = std::max(emax, e);
+    }
+    std::vector<double> r(maxLag + 2);
+    for (size_t k = 0; k < frames; k++) {
+        if (en[k] < emax * 0.003) continue;
+        long c = (long)(k * hop), a = c - W / 2;
+        double best = 0;
+        for (int l = minLag; l <= maxLag; l++) {
+            double num = 0, e1 = 0, e2 = 0;
+            for (int n = 0; n < W - l; n++) {
+                long i = a + n, j = a + n + l;
+                if (i < 0 || j >= (long)x.size()) continue;
+                num += (double)x[i] * x[j];
+                e1 += (double)x[i] * x[i];
+                e2 += (double)x[j] * x[j];
+            }
+            r[l] = (e1 > 0 && e2 > 0) ? num / std::sqrt(e1 * e2) : 0;
+            best = std::max(best, r[l]);
+        }
+        if (best < 0.55) continue;
+        // first local peak close to the best (avoids octave-down errors)
+        int pick = -1;
+        for (int l = minLag + 1; l < maxLag; l++)
+            if (r[l] >= r[l - 1] && r[l] >= r[l + 1] && r[l] >= 0.88 * best) { pick = l; break; }
+        if (pick < 0) continue;
+        double a0 = r[pick - 1], b0 = r[pick], c0 = r[pick + 1];
+        double den = a0 - 2 * b0 + c0, off = std::fabs(den) > 1e-12 ? 0.5 * (a0 - c0) / den : 0;
+        f0[k] = (float)(sr / (pick + std::max(-0.5, std::min(0.5, off))));
+    }
+    // median-of-5 smoothing of voiced runs
+    std::vector<float> sm = f0;
+    for (size_t k = 0; k < frames; k++) {
+        if (f0[k] <= 0) continue;
+        float v[5]; int n = 0;
+        for (long j = (long)k - 2; j <= (long)k + 2; j++)
+            if (j >= 0 && j < (long)frames && f0[j] > 0) v[n++] = f0[j];
+        std::sort(v, v + n);
+        sm[k] = v[n / 2];
+    }
+    // bridge short dropouts inside voiced speech (up to 4 frames) so a vowel is never split
+    for (size_t k = 1; k < frames; k++) {
+        if (sm[k] > 0 || sm[k - 1] <= 0) continue;
+        size_t j = k;
+        while (j < frames && sm[j] <= 0) j++;
+        if (j < frames && j - k <= 4) {
+            for (size_t i = k; i < j; i++) {
+                float f = (float)(i - k + 1) / (j - k + 1);
+                sm[i] = sm[k - 1] * (1 - f) + sm[j] * f;
+            }
+        }
+        k = j;
+    }
+    return sm;
+}
+
+Buf psola(const Buf &x, const std::vector<float> &track, int hop, double sr, const std::vector<float> &ratio) {
+    const long N = (long)x.size();
+    auto periodAt = [&](long n) -> double {
+        long k = std::max(0L, std::min((long)track.size() - 1, n / hop));
+        return track[k] > 0 ? sr / track[k] : 0.0;
+    };
+    auto ratioAt = [&](long n) -> double {
+        long k = std::max(0L, std::min((long)ratio.size() - 1, n / hop));
+        return ratio[k];
+    };
+    // 1. analysis pitch marks on each glottal pulse: peaks of a low-passed copy,
+    //    which has one dominant peak per period (keeps marks on the same phase)
+    Buf lp = x;
+    {
+        double w = 2 * 3.14159265358979 * 900.0 / sr, cw = std::cos(w), al = std::sin(w) / (2 * 0.7071), a0 = 1 + al;
+        double b0 = (1 - cw) / 2 / a0, b1 = (1 - cw) / a0, a1 = -2 * cw / a0, a2 = (1 - al) / a0;
+        double z1 = 0, z2 = 0;
+        for (auto &v : lp) { double o = b0 * v + z1; z1 = b1 * v - a1 * o + z2; z2 = b0 * v - a2 * o; v = (float)o; }
+        // zero-phase: run backwards too
+        z1 = z2 = 0;
+        for (long i = N - 1; i >= 0; i--) { double v = lp[i], o = b0 * v + z1; z1 = b1 * v - a1 * o + z2; z2 = b0 * v - a2 * o; lp[i] = (float)o; }
+    }
+    std::vector<long> marks;
+    long n = 0;
+    while (n < N) {
+        double T = periodAt(n);
+        if (T <= 0) { n += hop; continue; }
+        if (marks.empty() || n - marks.back() > 2 * T) {  // start of a voiced run
+            long best = n;
+            for (long i = n; i < std::min(N, n + (long)T); i++) if (lp[i] > lp[best]) best = i;
+            marks.push_back(best);
+            n = best + (long)T;
+            continue;
+        }
+        long lo = std::max(0L, n - (long)(T * 0.2)), hi = std::min(N - 1, n + (long)(T * 0.2));
+        long best = lo;
+        for (long i = lo; i <= hi; i++) if (lp[i] > lp[best]) best = i;
+        marks.push_back(best);
+        n = best + (long)std::max(8.0, T);
+    }
+    if (marks.size() < 3) return x;
+
+    // 2. overlap-add pitch-synchronous grains at the new spacing. Hann grains two
+    //    periods long placed every T/r sum to r, so each grain is scaled by 1/r.
+    Buf out(N, 0.0f), mask(N, 0.0f);
+    size_t m = 0;
+    auto localT = [&](size_t i) {
+        double T = periodAt(marks[i]);
+        if (T <= 0 && i > 0) T = (double)(marks[i] - marks[i - 1]);
+        return std::max(8.0, T);
+    };
+    while (m < marks.size()) {
+        // a voiced run: consecutive marks closer than twice the local period
+        size_t e = m;
+        while (e + 1 < marks.size() && marks[e + 1] - marks[e] < 2 * localT(e) + 2) e++;
+        if (e - m >= 2) {
+            long r0 = std::max(0L, marks[m] - (long)localT(m)), r1 = std::min(N - 1, marks[e] + (long)localT(e));
+            for (long i = r0; i <= r1; i++) mask[i] = 1.0f;
+            double ts = (double)marks[m];
+            while (ts <= marks[e]) {
+                size_t k = m;  // nearest analysis mark
+                while (k < e && std::fabs(marks[k + 1] - ts) < std::fabs(marks[k] - ts)) k++;
+                long mk = marks[k];
+                double Tn = k < e ? marks[k + 1] - mk : 1e9, Tp = k > m ? mk - marks[k - 1] : 1e9;
+                double Ta = std::min(Tn, Tp);  // shorter neighbour period: no oversized grains
+                double rr = std::max(0.5, std::min(2.0, ratioAt((long)ts)));
+                long L = (long)Ta;
+                float gain = (float)(1.0 / rr);
+                for (long i = -L; i <= L; i++) {
+                    long src = mk + i, dst = (long)std::lround(ts) + i;
+                    if (src < 0 || src >= N || dst < 0 || dst >= N) continue;
+                    float w = 0.5f * (1.0f + (float)std::cos(3.14159265358979 * i / (L + 1)));
+                    out[dst] += x[src] * w * gain;
+                }
+                ts += Ta / rr;
+            }
+        }
+        m = e + 1;
+    }
+    // 3. voiced runs use the grains, everything else the original; ~6 ms cross-fades
+    const long S = 64;
+    Buf ms(N, 0.0f);
+    double acc = 0;
+    for (long i = 0; i < N + S / 2; i++) {
+        if (i < N) acc += mask[i];
+        if (i - S >= 0) acc -= mask[i - S];
+        long c = i - S / 2;
+        if (c >= 0 && c < N) ms[c] = (float)(acc / S);
+    }
+    Buf y(N);
+    for (long i = 0; i < N; i++) y[i] = out[i] * ms[i] + x[i] * (1 - ms[i]);
+    return y;
+}
 }  // namespace dsp
