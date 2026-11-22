@@ -1,0 +1,10 @@
+{
+  "name": "voxtalk-web",
+  "private": true,
+  "description": "Browser build of voxtalk: FlexTalk in v86 plus the VOX processing chain",
+  "license": "MIT",
+  "dependencies": {
+    "lamejs": "1.2.1",
+    "v86": "0.5.476"
+  }
+}

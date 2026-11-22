@@ -14,6 +14,20 @@ Classic, by Valve Corporation, included unmodified. `src/vox_timing.h` and
 `src/vox_pitch.h` list the lengths and pitch contours of Half-Life's VOX word
 files (measurements only, no audio).
 
+## v86 (web version)
+
+`docs/vendor/libv86.mjs` and `docs/vendor/v86.wasm` are the x86 emulator
+[v86](https://github.com/copy/v86) 0.5.476, BSD 2-Clause license
+(`docs/vendor/v86-LICENSE.txt`), unmodified.
+
+## lamejs (web version)
+
+`docs/vendor/lame.min.js` is [lamejs](https://github.com/zhuker/lamejs) 1.2.1, a
+JavaScript port of LAME, licensed under the GNU Lesser General Public License
+version 3 (`docs/vendor/lamejs-LICENSE.txt`), unmodified. Its source is available
+from the lamejs repository and the npm package `lamejs@1.2.1`; the page loads it
+as a separate file, so it can be replaced with a modified build.
+
 ## LAME 3.100
 
 voxtalk.exe statically links the LAME MP3 encoder library, version 3.100,

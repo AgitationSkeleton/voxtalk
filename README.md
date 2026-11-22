@@ -17,6 +17,14 @@ quantisation.
 - The VOX sound effects (`buzwarn`, `deeoo`, `dadeda`, ...) usable by name
 - Export one file per word, ready to drop into a `sound/vox`-style folder
 
+## Use it in the browser
+
+**[voxtalk.viosarcade.xyz](https://voxtalk.viosarcade.xyz)** does everything the Windows
+version does, on desktop and on phones. The original FlexTalk engine runs inside the
+page (see [How the web version works](#how-the-web-version-works)); its output is
+sample-for-sample identical to the Windows version. The first visit downloads about
+6 MB.
+
 ## Download
 
 Grab `voxtalk.exe` from the [Releases](../../releases) page and run it. Requires
@@ -143,12 +151,38 @@ the original installer.
 - Audio is captured through a minimal in-memory implementation of SAPI's
   `IAudio`/`IAudioDest` interfaces.
 
+### How the web version works
+
+The browser can't load a Windows DLL, so the page runs a small x86 PC instead:
+
+- [v86](https://github.com/copy/v86), an x86 emulator compiled to WebAssembly,
+  boots `guest/`, a tiny freestanding kernel (no BIOS, no operating system).
+- The kernel is a "mini-Windows": it loads the unmodified FlexTalk DLLs with its
+  own PE loader and provides the ~150 Win32 functions they import (heap, files from
+  a RAM disk, an in-memory registry, named shared memory, cooperative threads,
+  window messages, structured exception handling). `gen_shims.py` checks every
+  function's argument size against the real Windows API at build time.
+- It then drives the engine exactly like the Windows version does. The page sends
+  text and settings through a mailbox in guest memory and reads the audio back; the
+  output is bit-identical to FlexTalk running on Windows.
+- The rest of the chain (speed, pitch matching, echo, filtering, sentence syntax,
+  WAV/MP3) runs in JavaScript in `web/js`, ported from `src/`.
+
+Building it (also MSYS2 with the 32-bit MinGW toolchain, plus Node.js):
+
+```
+guest/build_guest.sh                    # kernel.bin + engine.vxrd into build/web/
+cd web && npm install && ./build_site.sh  # assembles the site into docs/
+```
+
 ## Credits
 
 - FlexTalk is AT&T's text-to-speech engine; the bundled engine files are included unmodified.
 - Half-Life and its VOX announcer are Valve's. The bundled sound effects in
   `payload/Sounds` are Valve's original Half-Life sounds. This project is not
   affiliated with Valve or AT&T.
-- MP3 encoding uses [LAME](https://lame.sourceforge.io/) (LGPL), see `THIRD_PARTY_NOTICES.md`.
+- MP3 encoding uses [LAME](https://lame.sourceforge.io/) (LGPL); the web version uses
+  its JavaScript port lamejs (LGPL) and the [v86](https://github.com/copy/v86) emulator
+  (BSD). See `THIRD_PARTY_NOTICES.md`.
 
 voxtalk's own source code is MIT licensed (see `LICENSE`).

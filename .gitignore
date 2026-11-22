@@ -2,3 +2,6 @@ build/
 third_party/
 __pycache__/
 *.npy
+guest/obj/
+web/node_modules/
+web/js/voxdata.js
