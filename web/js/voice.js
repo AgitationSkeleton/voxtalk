@@ -276,12 +276,15 @@ export function suggestFileName(text, maxLen = 80) {
 }
 
 // Render text to Float32Array at opts.sampleRate (11025 or 44100).
-export async function render(engine, vs, opts, text, onProgress) {
+// `signal` (an AbortSignal) cancels between engine requests.
+export async function render(engine, vs, opts, text, onProgress, signal) {
+    const check = () => { if (signal && signal.aborted) throw new DOMException('Stopped', 'AbortError'); };
     const items = parse(text);
     const parts = [];
     if (vs.style === 'sentence') {
         let run = '';
         const flush = async () => {
+            check();
             if (/[\p{L}\p{N}]/u.test(run)) parts.push(await renderChunk(engine, vs, run, false));
             run = '';
         };
@@ -294,12 +297,14 @@ export async function render(engine, vs, opts, text, onProgress) {
     } else {
         let done = 0;
         for (const it of items) {
+            check();
             if (it.kind === 'pause') { parts.push(new Float32Array(Math.floor(it.pause * SR))); continue; }
             let b = it.kind === 'sound' ? await soundEffect(it.text) : await renderChunk(engine, vs, it.text, true);
             parts.push(applyWordParams(b, it.wp));
             if (onProgress) onProgress(++done, items.length);
         }
     }
+    check();
     let all = concat(parts);
     if (!all.length) throw new Error('Nothing to say.');
     for (let i = 0; i < all.length; i++) all[i] = Math.max(-128 / 127, Math.min(1, all[i]));

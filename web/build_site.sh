@@ -23,6 +23,13 @@ cp "$WEBBUILD"/kernel.bin "$SITE"/engine/
 gzip -9 -n -c "$WEBBUILD"/engine.vxrd > "$SITE"/engine/engine.vxrd.gz
 cp ../payload/Sounds/*.wav "$SITE"/sounds/
 $PY tools/favicon.py "$SITE"/favicon.png
+
+# Cache busting: stamp every script/style/engine URL with a content hash, so a
+# browser never mixes files from two different versions of the site.
+VER=$(cat "$SITE"/index.html "$SITE"/css/*.css "$SITE"/js/*.js "$SITE"/engine/kernel.bin "$SITE"/engine/engine.vxrd.gz | sha1sum | cut -c1-10)
+sed -i -E "s#(href=\"css/style\.css)\"#\1?v=$VER\"#; s#(src=\"vendor/lame\.min\.js)\"#\1?v=$VER\"#; s#(src=\"js/app\.js)\"#\1?v=$VER\"#" "$SITE"/index.html
+sed -i -E "s#(from '\./[a-z]+\.js)'#\1?v=$VER'#g; s#'\.\./vendor/libv86\.mjs'#'../vendor/libv86.mjs?v=$VER'#; s#'engine/kernel\.bin'#'engine/kernel.bin?v=$VER'#; s#'engine/engine\.vxrd\.gz'#'engine/engine.vxrd.gz?v=$VER'#; s#'vendor/v86\.wasm'#'vendor/v86.wasm?v=$VER'#g" "$SITE"/js/*.js
+echo "site version $VER"
 echo "voxtalk.viosarcade.xyz" > "$SITE"/CNAME
 touch "$SITE"/.nojekyll
 du -sh "$SITE"; find "$SITE" -type f | sort

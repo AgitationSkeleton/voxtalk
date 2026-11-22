@@ -1,7 +1,7 @@
 // voxtalk web front end.
-import { createEngine } from './engine.js';
-import * as voice from './voice.js';
-import * as audio from './audio.js';
+import { createEngine } from './engine.js?v=089d56bf5d';
+import * as voice from './voice.js?v=089d56bf5d';
+import * as audio from './audio.js?v=089d56bf5d';
 
 const $ = (id) => document.getElementById(id);
 const status = (s) => { $('status').textContent = s; };
@@ -128,21 +128,45 @@ const textOrComplain = () => {
     if (!t.trim()) { status('Type something to say first.'); return null; }
     return t;
 };
-const progress = (done, total) => status(`Rendering... ${done} / ${total}`);
+// ------------------------------------------------------------ jobs (Stop cancels)
+let job = null;
+function startJob() {
+    job = { ctl: new AbortController() };
+    setBusy(true);
+    return job;
+}
+const isLive = (j) => job === j && !j.ctl.signal.aborted;
+function endJob(j) { if (job === j) { job = null; setBusy(false); } }
+async function failJob(j, e) {
+    if (!isLive(j)) return;  // stopped by the user: stay quiet
+    status('Error: ' + e.message);
+    if (engine && engine.failed) await restartEngine();
+}
+function stopAll() {
+    audio.stop();
+    if (job) {
+        job.ctl.abort();
+        job = null;
+        setBusy(false);
+        status('Stopped.');
+    }
+}
+const progressFor = (j) => (done, total) => { if (isLive(j)) status(`Rendering... ${done} / ${total}`); };
 
 async function doSpeak() {
     audio.unlockAudio();
     const t = textOrComplain();
     if (!t || busy) return;
-    setBusy(true);
+    const j = startJob();
     status('Rendering...');
     try {
         const opts = currentOutput();
-        const x = await voice.render(engine, currentSettings(), opts, t, progress);
+        const x = await voice.render(engine, currentSettings(), opts, t, progressFor(j), j.ctl.signal);
+        if (!isLive(j)) return;
         const secs = audio.play(x, opts.sampleRate);
         status(`Playing ${secs.toFixed(2)} s.`);
-    } catch (e) { status('Error: ' + e.message); }
-    setBusy(false);
+    } catch (e) { await failJob(j, e); }
+    finally { endJob(j); }
 }
 
 function encode(x, opts) {
@@ -154,17 +178,18 @@ function encode(x, opts) {
 async function doSave() {
     const t = textOrComplain();
     if (!t || busy) return;
-    setBusy(true);
+    const j = startJob();
     status('Rendering...');
     try {
         const opts = currentOutput();
-        const x = await voice.render(engine, currentSettings(), opts, t, progress);
+        const x = await voice.render(engine, currentSettings(), opts, t, progressFor(j), j.ctl.signal);
+        if (!isLive(j)) return;
         const f = encode(x, opts);
         const name = voice.suggestFileName(t) + f.ext;
         audio.download(f.data, name, f.type);
         status('Saved ' + name);
-    } catch (e) { status('Error: ' + e.message); }
-    setBusy(false);
+    } catch (e) { await failJob(j, e); }
+    finally { endJob(j); }
 }
 
 async function doSaveWords() {
@@ -172,24 +197,26 @@ async function doSaveWords() {
     if (!t || busy) return;
     const words = voice.splitWords(t);
     if (!words.length) { status('No words to export.'); return; }
-    setBusy(true);
+    const j = startJob();
     try {
         const opts = currentOutput();
         const vs = { ...currentSettings(), style: 'words' };
         const files = [];
         const used = new Set();
         for (let i = 0; i < words.length; i++) {
+            if (!isLive(j)) return;
             status(`Rendering words... ${i + 1} / ${words.length}`);
             if (used.has(words[i].stem)) continue;
             used.add(words[i].stem);
-            const x = await voice.render(engine, vs, opts, words[i].text);
+            const x = await voice.render(engine, vs, opts, words[i].text, null, j.ctl.signal);
             const f = encode(x, opts);
             files.push({ name: (words[i].stem || 'word') + f.ext, data: f.data });
         }
+        if (!isLive(j)) return;
         audio.download(audio.makeZip(files), 'voxtalk_words.zip', 'application/zip');
         status(`Saved ${files.length} word files (voxtalk_words.zip).`);
-    } catch (e) { status('Error: ' + e.message); }
-    setBusy(false);
+    } catch (e) { await failJob(j, e); }
+    finally { endJob(j); }
 }
 
 async function previewSound() {
@@ -287,14 +314,15 @@ async function boot() {
     try {
         status('Loading the speech engine...');
         const [{ V86 }, kernel, packed] = await Promise.all([
-            import('../vendor/libv86.mjs'),
-            fetch('engine/kernel.bin').then((r) => r.arrayBuffer()),
-            fetchWithProgress('engine/engine.vxrd.gz', 'Loading the speech engine...'),
+            import('../vendor/libv86.mjs?v=089d56bf5d'),
+            fetch('engine/kernel.bin?v=089d56bf5d').then((r) => r.arrayBuffer()),
+            fetchWithProgress('engine/engine.vxrd.gz?v=089d56bf5d', 'Loading the speech engine...'),
         ]);
         status('Unpacking the speech engine...');
         const ramdisk = await gunzip(packed);
+        engineFiles = { V86, kernel, ramdisk };
         status('Starting FlexTalk...');
-        const e = createEngine({ V86, wasmPath: 'vendor/v86.wasm', kernel, ramdisk });
+        const e = createEngine({ V86, wasmPath: 'vendor/v86.wasm?v=089d56bf5d', kernel, ramdisk });
         await e.ready;
         engine = e;
         setBusy(false);
@@ -302,6 +330,27 @@ async function boot() {
     } catch (err) {
         status('Could not start the speech engine: ' + err.message);
     }
+}
+
+// Restart the emulated engine (files are already in memory) after a failure.
+let engineFiles = null;
+async function restartEngine() {
+    if (!engineFiles) return;
+    const old = engine;
+    engine = null;
+    setBusy(true);
+    status('Restarting the speech engine...');
+    if (old) old.destroy();
+    try {
+        const { V86, kernel, ramdisk } = engineFiles;
+        const e = createEngine({ V86, wasmPath: 'vendor/v86.wasm?v=089d56bf5d', kernel, ramdisk });
+        await e.ready;
+        engine = e;
+        status('The speech engine was restarted. Ready.');
+    } catch (err) {
+        status('Could not restart the speech engine: ' + err.message);
+    }
+    setBusy(false);
 }
 
 // ------------------------------------------------------------ init
@@ -318,7 +367,7 @@ const selectTab = initTabs();
 initSentences(selectTab);
 
 $('speak').addEventListener('click', doSpeak);
-$('stop').addEventListener('click', () => { audio.stop(); });
+$('stop').addEventListener('click', stopAll);
 $('save').addEventListener('click', doSave);
 $('savewords').addEventListener('click', doSaveWords);
 $('reset').addEventListener('click', () => { loadDefaults(); saveSettings(); });

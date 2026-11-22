@@ -1,5 +1,5 @@
 // Output: WAV / MP3 encoding, ZIP packaging, playback.
-import { resample } from './dsp.js';
+import { resample } from './dsp.js?v=089d56bf5d';
 
 const toS16 = (v) => Math.max(-32768, Math.min(32767, Math.round(v * 32767)));
 

@@ -27,8 +27,22 @@ export function createEngine({ V86, wasmPath, kernel, ramdisk, onLog }) {
     const pause = () => { if (running) { emulator.stop(); running = false; } };
     const resume = () => { if (!running) { emulator.run(); running = true; } };
 
+    let failed = null;
+    let watchdog = 0;
+    function fail(err) {
+        if (failed) return;
+        failed = err;
+        clearTimeout(watchdog);
+        if (pending) { pending.reject(err); pending = null; }
+        while (queue.length) queue.shift().reject(err);
+        readyReject(err);
+        try { emulator.stop(); } catch (e) { /* ignore */ }
+    }
+
     function post(job) {
         pending = job;
+        clearTimeout(watchdog);
+        watchdog = setTimeout(() => fail(new Error('the speech engine stopped responding')), 30000);
         const params = new Int32Array(8);
         PARAM_ORDER.forEach((k, i) => { params[i] = Math.round(job.params[k]); });
         emulator.write_memory(new Uint8Array(params.buffer), MAILBOX + 12);
@@ -57,6 +71,8 @@ export function createEngine({ V86, wasmPath, kernel, ramdisk, onLog }) {
             readyResolve();
             next();
         } else if (l === 'DONE' || l === 'ERROR') {
+            clearTimeout(watchdog);
+            if (!pending) return;
             const mb = new DataView(emulator.read_memory(MAILBOX, 192).slice().buffer);
             const addr = mb.getUint32(48, true), len = mb.getUint32(52, true);
             const job = pending;
@@ -71,20 +87,20 @@ export function createEngine({ V86, wasmPath, kernel, ramdisk, onLog }) {
             }
             if (queue.length) next(); else pause();
         } else if (l.startsWith('PANIC') || l.startsWith('ERROR')) {
-            const err = new Error('Engine failure: ' + l);
-            readyReject(err);
-            if (pending) { pending.reject(err); pending = null; }
+            fail(new Error('Engine failure: ' + l));
         }
     });
 
     return {
         ready,
+        get failed() { return failed; },
         speak(params, text) {
+            if (failed) return Promise.reject(failed);
             return new Promise((resolve, reject) => {
                 queue.push({ params, text, resolve, reject });
                 ready.then(next, reject);
             });
         },
-        destroy() { emulator.destroy(); },
+        destroy() { clearTimeout(watchdog); try { emulator.destroy(); } catch (e) { /* ignore */ } },
     };
 }
