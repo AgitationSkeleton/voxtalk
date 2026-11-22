@@ -14,6 +14,7 @@ struct VoiceSettings {
     double echoDelayMs = 137.0;
     double lowCutHz = 0;
     Style style = Style::Sentence;
+    bool gameTiming = true;  // give known words their length from the game files
 };
 
 // Settings measured from Half-Life's sound/vox files.
@@ -30,3 +31,10 @@ bool render(FlexEngine &eng, const VoiceSettings &vs, const OutputOptions &opts,
 
 // Split text into words for one-file-per-word export. Returns (spoken text, file stem).
 std::vector<std::pair<std::wstring, std::wstring>> splitWords(const std::wstring &text);
+
+// A file name (without extension) built from as much of the text as fits.
+std::wstring suggestFileName(const std::wstring &text, size_t maxLen = 80);
+
+// Bundled Half-Life VOX sound effects, usable by name in the text.
+const std::vector<std::wstring> &soundEffectNames();
+void setSoundDirectory(const std::wstring &dir);

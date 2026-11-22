@@ -77,7 +77,12 @@ bool ensureEngineFiles(std::wstring &engineDir, std::wstring &stateDir, std::wst
         HANDLE h = FindFirstFileW((base + L"\\engine-*").c_str(), &fd);
         if (h != INVALID_HANDLE_VALUE) {
             do {
-                if (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) removeTree(base + L"\\" + fd.cFileName);
+                if (!(fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)) continue;
+                // Only remove a version no other instance is using: renaming the
+                // folder fails while any of its files are open.
+                std::wstring old = base + L"\\" + fd.cFileName;
+                std::wstring trash = base + L"\\old-" + fd.cFileName;
+                if (MoveFileW(old.c_str(), trash.c_str())) removeTree(trash);
             } while (FindNextFileW(h, &fd));
             FindClose(h);
         }

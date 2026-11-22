@@ -9,10 +9,12 @@ no admin rights and no registry changes, then applies the processing measured
 from the game's own `sound/vox` files: pitch, speed, echo, filtering and 8-bit
 quantisation.
 
-- Single portable `voxtalk.exe` (about 4.4 MB) with the engine and voice data built in
+- Single portable `voxtalk.exe` (about 4.6 MB) with the engine and voice data built in
 - Window for interactive use plus a command line for scripting
 - WAV or MP3, at 11025 Hz (as in the game) or 44100 Hz
-- "Word by word" mode that speaks each word separately, like the game's sentence system
+- "Word by word" mode that speaks each word separately, like the game's sentence system,
+  including Half-Life's `sentences.txt` syntax (`the(s15 e80)`, `(e90)`, pitch, volume, ...)
+- The VOX sound effects (`buzwarn`, `deeoo`, `dadeda`, ...) usable by name
 - Export one file per word, ready to drop into a `sound/vox`-style folder
 
 ## Download
@@ -23,8 +25,9 @@ Windows 8 or later (32- or 64-bit). On first start the engine is unpacked to
 
 ## Using the window
 
-Type text, press **Speak**. **Save as...** writes a single file, **Save words...**
-writes one file per word into a folder. Every slider starts at the VOX
+Type text, press **Speak**. **Save as...** writes a single file (named after the
+text), **Save words...** writes one file per word into a folder. **Sound** +
+**Insert** adds a sound effect at the cursor. Every slider starts at the VOX
 calibration; **Reset to VOX defaults** puts them back.
 
 | Control | What it does |
@@ -35,9 +38,32 @@ calibration; **Reset to VOX defaults** puts them back.
 | Echo amount / delay | The feedback echo heard in VOX (100 % = as measured) |
 | Low cut | High-pass filter |
 | 8-bit | Quantises to 8 bits like the game files; at 11025 Hz WAV the file is written as 8-bit PCM |
+| Use the game's word lengths | Words that exist in the game get exactly the length of the game's recording, so sentences keep the game's timing |
 
 Punctuation adds pauses in word-by-word mode: commas 0.25 s, full stops 0.43 s,
 matching the game's `_comma` and `_period` sounds.
+
+## Sentence syntax and sound effects
+
+In word-by-word mode the text accepts the same syntax as the game's
+`sound/sentences.txt`, so lines can be pasted straight from it:
+
+```
+vox/buzwarn Your team has the(s15 e80) enemy flag
+vox/(e90) command point one secured
+```
+
+| Syntax | Meaning |
+|---|---|
+| `word(s15 e80)` | play the word from 15 % to 80 % of its length |
+| `(e90) word word` | a group on its own applies to all following words |
+| `p110` / `v50` / `t30` | pitch %, volume %, time compression % |
+| `vox/` | directory prefixes are ignored |
+| `_comma` `_period` `,` `.` | short / long pause |
+
+Sound effects are used by name: `bizwarn`, `bloop`, `buzwarn`, `dadeda`, `deeoo`,
+`doop`, `woop` and `endgame`. These are the original Half-Life sound files by
+Valve, included unmodified.
 
 ## Command line
 
@@ -56,6 +82,7 @@ voxtalk --play "hello"
 | `-r 11025\|44100` | sample rate (default 11025) |
 | `-f wav\|mp3` | format for `--split` |
 | `--8bit` / `--16bit` | 8-bit quantisation on (default) or off |
+| `--no-game-timing` | don't give known words the game's word length |
 | `--style words\|sentence` | default `words` |
 | `--pitch --expression --speaking-rate --head-size --prominences --lowering N` | FlexTalk parameters, 0-100 |
 | `--speed PCT --echo PCT --echo-delay MS --low-cut HZ` | effects |
@@ -71,19 +98,25 @@ folder, not tuned by ear:
 |---|---|---|
 | Voice | FlexTalk male speaker | same |
 | Speed | Playback slowed to 11025/12000 = 91.875 %; tempo and formant positions both point to this ratio | 91.875 % |
-| Pitch | ~61-83 Hz, rising then falling within each word | Pitch 19, Expression 75, Lowering 0, L*+H accent per word |
+| Pitch | ~60-81 Hz, rising then falling within each word | Pitch 20, Expression 55, Lowering 0, L*+H accent per word |
 | Echo | One feedback delay of 1510 samples (137 ms) with a gentle low-pass in the loop, loop gain about 0.43 | same |
 | Filtering | Little energy below ~120 Hz | 4th-order high-pass at 160 Hz |
-| Format | 11025 Hz, 8-bit mono, each word cut ~29 dB down its echo tail | same |
+| Format | 11025 Hz, 8-bit mono | same |
+| Word length | Each word file trimmed by hand, from right at the end of the speech to well into the echo | the game's length for its ~600 words (a table of numbers, no audio), otherwise cut ~29 dB down the echo |
 
 Compared with the originals over 150 words, voxtalk's output matches tempo
-(ratio 1.00), formant positions (1.00), pitch quartiles (61/71/87 Hz vs 61/72/83 Hz),
-echo loop gain (0.44 vs 0.43) and median word length (0.65 s vs 0.63 s).
+(ratio 1.00), formant positions (1.00), pitch percentiles 25/50/75/90
+(61/69/84/106 Hz vs 60/72/81/105 Hz), echo loop gain (0.45 vs 0.43) and median
+word length (0.63 s vs 0.63 s). Team Fortress Classic's announcer lines
+(`your team has the(s15 e80) enemy flag`, ...) come out the same length as the
+game's own assembly of them.
 
 The scripts in `tools/calibration` reproduce these measurements (Python with
 numpy and scipy): `echo.py` finds the echo delay, `loopfilt.py` estimates the
-echo's loop filter, `deecho.py` removes it, and `analyze.py` holds the pitch and
-spectrum helpers.
+echo's loop filter, `deecho.py` removes it, `assemble.py` builds a sentence
+from the game's word files the way the game does, `make_timing_table.py`
+generates `src/vox_timing.h`, and `analyze.py` holds the pitch and spectrum
+helpers.
 
 ## Building
 
@@ -111,7 +144,9 @@ the original installer.
 ## Credits
 
 - FlexTalk is AT&T's text-to-speech engine; the bundled engine files are included unmodified.
-- Half-Life and its VOX announcer are Valve's. This project is not affiliated with Valve or AT&T.
+- Half-Life and its VOX announcer are Valve's. The bundled sound effects in
+  `payload/Sounds` are Valve's original Half-Life sounds. This project is not
+  affiliated with Valve or AT&T.
 - MP3 encoding uses [LAME](https://lame.sourceforge.io/) (LGPL), see `THIRD_PARTY_NOTICES.md`.
 
 voxtalk's own source code is MIT licensed (see `LICENSE`).

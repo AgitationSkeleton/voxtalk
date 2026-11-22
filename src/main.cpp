@@ -14,7 +14,7 @@
 #include "pack.h"
 #include "resource.h"
 
-#define VOXTALK_VERSION L"1.0.0"
+#define VOXTALK_VERSION L"1.1.0"
 
 // ===========================================================================
 // Shared helpers
@@ -77,7 +77,8 @@ static const wchar_t *USAGE =
     L"  --8bit / --16bit      8-bit Half-Life style quantisation on (default) or off\n"
     L"\n"
     L"voice (defaults match Half-Life's VOX):\n"
-    L"  --style STYLE        words (each word spoken separately, as in-game) or sentence\n"
+    L"  --no-game-timing      don't give known words the length they have in the game\n"
+    L"  --style STYLE       words (each word spoken separately, as in-game) or sentence\n"
     L"  --pitch N             FlexTalk pitch 0-100        --expression N   intonation 0-100\n"
     L"  --speaking-rate N     FlexTalk rate 0-100         --head-size N    vocal tract size 0-100\n"
     L"  --prominences N       accent strength 0-100       --lowering N     declination 0-100\n"
@@ -88,7 +89,14 @@ static const wchar_t *USAGE =
     L"  --echo-delay MS       echo delay (default 137)\n"
     L"  --low-cut HZ          high-pass filter frequency (default 160), 0 = off\n"
     L"\n"
+    L"text syntax (word-by-word style):\n"
+    L"  Half-Life sentence modifiers work: word(s15 e80) plays 15-80 % of a word,\n"
+    L"  a standalone (e90) applies to the following words; p = pitch %, v = volume %,\n"
+    L"  t = time compression %. Sound effects by name: bizwarn bloop buzwarn dadeda\n"
+    L"  deeoo doop woop endgame (original Half-Life sounds by Valve).\n"
+    L"\n"
     L"examples:\n"
+    L"  voxtalk -o flag.wav \"buzwarn your team has the(s15 e80) enemy flag\"\n"
     L"  voxtalk -o hello.wav \"attention, all personnel.\"\n"
     L"  voxtalk -r 44100 -o warn.mp3 \"warning. power level critical.\"\n"
     L"  voxtalk --split words \"one two three\"\n";
@@ -115,6 +123,7 @@ static int runCli(int argc, wchar_t **argv) {
         else if (a == L"-f" || a == L"--format") { if (!next(fmtArg)) return 2; }
         else if (a == L"--8bit") oo.eightBit = true;
         else if (a == L"--16bit") oo.eightBit = false;
+        else if (a == L"--no-game-timing") vs.gameTiming = false;
         else if (a == L"--style") {
             if (!next(v)) return 2;
             if (v == L"words") vs.style = Style::Words;
@@ -141,6 +150,7 @@ static int runCli(int argc, wchar_t **argv) {
 
     std::wstring engineDir, stateDir, err;
     if (!ensureEngineFiles(engineDir, stateDir, err)) { cliOut(L"error: " + err + L"\n"); return 1; }
+    setSoundDirectory(engineDir + L"\\Sounds");
     FlexEngine eng;
     if (!eng.init(engineDir, stateDir, err)) { cliOut(L"error: " + err + L"\n"); return 1; }
 
@@ -174,7 +184,7 @@ static int runCli(int argc, wchar_t **argv) {
 // ===========================================================================
 enum {
     IDC_TEXT = 1000, IDC_STYLE, IDC_RATE, IDC_FORMAT, IDC_8BIT, IDC_PLAY, IDC_STOP, IDC_SAVE,
-    IDC_SAVEWORDS, IDC_RESET, IDC_STATUS, IDC_SLIDER0 = 1100, IDC_VALUE0 = 1200, IDC_LABEL0 = 1300
+    IDC_SAVEWORDS, IDC_RESET, IDC_STATUS, IDC_SOUND, IDC_INSERT, IDC_TIMING, IDC_SLIDER0 = 1100, IDC_VALUE0 = 1200, IDC_LABEL0 = 1300
 };
 #define WM_APP_READY (WM_APP + 1)
 #define WM_APP_DONE (WM_APP + 2)
@@ -203,7 +213,7 @@ struct JobResult {
     int rate = 11025, words = 0;
 };
 
-static HWND g_wnd, g_text, g_style, g_rate, g_format, g_8bit, g_status, g_play, g_save, g_savewords, g_stop, g_reset;
+static HWND g_wnd, g_text, g_style, g_rate, g_format, g_8bit, g_status, g_play, g_save, g_savewords, g_stop, g_reset, g_sound, g_timing;
 static HWND g_sl[S_COUNT], g_val[S_COUNT];
 static HFONT g_font;
 static double g_scale = 1.0;
@@ -220,6 +230,7 @@ static DWORD WINAPI workerMain(void *) {
     FlexEngine eng;
     std::wstring engineDir, stateDir, err;
     bool ok = ensureEngineFiles(engineDir, stateDir, err) && eng.init(engineDir, stateDir, err);
+    if (ok) setSoundDirectory(engineDir + L"\\Sounds");
     g_initErr = err;
     PostMessageW(g_wnd, WM_APP_READY, ok, 0);
     for (;;) {
@@ -288,6 +299,7 @@ static void loadDefaults() {
     setSlider(S_DELAY, (int)(s.echoDelayMs + 0.5));
     setSlider(S_LOWCUT, (int)(s.lowCutHz + 0.5));
     SendMessageW(g_style, CB_SETCURSEL, s.style == Style::Words ? 1 : 0, 0);
+    SendMessageW(g_timing, BM_SETCHECK, s.gameTiming ? BST_CHECKED : BST_UNCHECKED, 0);
 }
 
 static VoiceSettings currentSettings() {
@@ -305,6 +317,7 @@ static VoiceSettings currentSettings() {
     if (d != (int)(s.echoDelayMs + 0.5)) s.echoDelayMs = d;
     s.lowCutHz = pos(S_LOWCUT);
     s.style = SendMessageW(g_style, CB_GETCURSEL, 0, 0) == 1 ? Style::Words : Style::Sentence;
+    s.gameTiming = SendMessageW(g_timing, BM_GETCHECK, 0, 0) == BST_CHECKED;
     return s;
 }
 
@@ -356,7 +369,9 @@ static void submit(Action a, const std::wstring &path) {
 
 static std::wstring pickSaveFile() {
     bool mp3 = currentFormat() == FileFormat::Mp3;
-    wchar_t file[MAX_PATH] = L"voxtalk";
+    wchar_t file[MAX_PATH];
+    wcsncpy(file, suggestFileName(currentText()).c_str(), MAX_PATH - 1);
+    file[MAX_PATH - 1] = 0;
     OPENFILENAMEW of{};
     of.lStructSize = sizeof of;
     of.hwndOwner = g_wnd;
@@ -408,6 +423,11 @@ static void buildUi() {
     g_style = mk(L"COMBOBOX", L"", CBS_DROPDOWNLIST | WS_TABSTOP, 64, 110, 220, 200, IDC_STYLE);
     SendMessageW(g_style, CB_ADDSTRING, 0, (LPARAM)L"Whole sentence");
     SendMessageW(g_style, CB_ADDSTRING, 0, (LPARAM)L"Word by word (in-game)");
+    mk(L"STATIC", L"Sound:", 0, 306, 114, 46, 20, -1);
+    g_sound = mk(L"COMBOBOX", L"", CBS_DROPDOWNLIST | WS_TABSTOP | WS_VSCROLL, 354, 110, 140, 240, IDC_SOUND);
+    for (auto &n : soundEffectNames()) SendMessageW(g_sound, CB_ADDSTRING, 0, (LPARAM)n.c_str());
+    SendMessageW(g_sound, CB_SETCURSEL, 0, 0);
+    mk(L"BUTTON", L"&Insert", WS_TABSTOP, 500, 109, 88, 26, IDC_INSERT);
 
     int y = 146;
     group(L"FlexTalk voice", 12, y, W - 24, 132);
@@ -421,6 +441,8 @@ static void buildUi() {
     }
     y += 282;
     g_reset = mk(L"BUTTON", L"Reset to VOX defaults", WS_TABSTOP, 12, y, 180, 26, IDC_RESET);
+    g_timing = mk(L"BUTTON", L"Use the game's word lengths (word by word)", BS_AUTOCHECKBOX | WS_TABSTOP, 210, y + 3,
+                  370, 22, IDC_TIMING);
 
     y += 36;
     group(L"Output", 12, y, W - 24, 56);
@@ -456,6 +478,22 @@ static LRESULT CALLBACK wndProc(HWND h, UINT m, WPARAM wp, LPARAM lp) {
     case WM_COMMAND: {
         int id = LOWORD(wp);
         if (id == IDC_RESET) loadDefaults();
+        else if (id == IDC_INSERT) {
+            int i = (int)SendMessageW(g_sound, CB_GETCURSEL, 0, 0);
+            if (i >= 0 && i < (int)soundEffectNames().size()) {
+                std::wstring ins = soundEffectNames()[i] + L" ";
+                DWORD a = 0, b = 0;
+                SendMessageW(g_text, EM_GETSEL, (WPARAM)&a, (LPARAM)&b);
+                int len = GetWindowTextLengthW(g_text);
+                if (a > 0 && a <= (DWORD)len) {
+                    std::wstring t(len + 1, 0);
+                    GetWindowTextW(g_text, &t[0], len + 1);
+                    if (!iswspace(t[a - 1])) ins = L" " + ins;
+                }
+                SendMessageW(g_text, EM_REPLACESEL, TRUE, (LPARAM)ins.c_str());
+                SetFocus(g_text);
+            }
+        }
         else if (id == IDC_PLAY && g_ready && !g_busy) submit(Action::Play, L"");
         else if (id == IDC_STOP) stopAudio();
         else if (id == IDC_SAVE && g_ready && !g_busy) {

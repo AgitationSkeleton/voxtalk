@@ -143,6 +143,11 @@ void trim(Buf &x, double thresholdDb, int padStart, int padEnd) {
 void quantize8(Buf &x, unsigned seed) {
     unsigned s = seed ? seed : 12345u;
     for (auto &v : x) {
+        float g = v * 127.0f;
+        if (std::fabs(g - std::round(g)) < 1e-3f) {  // already 8-bit (e.g. original game sounds)
+            v = std::max(-128.0f, std::min(127.0f, std::round(g))) / 127.0f;
+            continue;
+        }
         float d = (urand(s) - urand(s)) * 0.5f;
         float q = std::round(v * 127.0f + d);
         q = std::max(-128.0f, std::min(127.0f, q));

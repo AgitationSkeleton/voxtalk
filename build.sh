@@ -7,6 +7,7 @@ cd "$(dirname "$0")"
 MINGW=${MINGW:-/c/msys64/mingw32}
 export PATH="$MINGW/bin:$PATH"
 LAME=${LAME:-third_party/lame-install}
+OUT=${OUT:-build/voxtalk.exe}
 
 mkdir -p build
 # 1. pack the engine payload (FlexTalk DLLs + voice data)
@@ -23,5 +24,5 @@ g++ -std=c++17 -O2 -s -static -municode -mwindows -Wall -Wno-unused-function \
     build/voxtalk.res \
     -L"$LAME/lib" -lmp3lame -llamevectorroutines \
     -lole32 -luuid -lcomctl32 -lcomdlg32 -lwinmm -lshell32 -ladvapi32 \
-    -o build/voxtalk.exe
-ls -la build/voxtalk.exe
+    -o "$OUT"
+ls -la "$OUT"
