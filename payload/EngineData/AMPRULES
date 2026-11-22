@@ -1,0 +1,33 @@
+2750	# 0.67	# svow	next_last_amp
+2750	# 0.67	# lvow	next_last_amp
+3800	# 0.93	# voic	next_last_amp
+4096	# 1.00	# uvoi	next_last_amp
+3750	# 0.92	# ustp	next_last_amp
+3850	# 0.94	# vstp	next_last_amp
+4096	# 1.00	# oth	next_last_amp
+2800	# 0.68	# svow	last_amp
+2600	# 0.64	# lvow	last_amp
+2150	# 0.52	# voic	last_amp
+1850	# 0.45	# uvoi	last_amp
+1700	# 0.43	# ustp	last_amp
+2300	# 0.56	# vstp	last_amp
+4096	# 1.00	# oth	last_amp
+4096	# 1.00	# gain
+3973	# 0.97	# funcwf
+3973	# 0.97	# shortf
+4096	# 1.00	# cfactor
+70	# PH_i
+70	# PH_e
+70	# PH_u
+80	# PH_uh
+90	# PH_ii
+90	# PH_uu
+120	# PH_ei
+120	# PH_er
+90	# PH_o
+110	# PH_a
+110	# PH_ae
+120	# PH_c
+130	# PH_ai
+120	# PH_au
+120	# PH_ci
